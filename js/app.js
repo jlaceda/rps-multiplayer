@@ -120,29 +120,25 @@ const joinTable = (tableName) => {
 		if (table !== null)
 		{
 			// join table
-			// TODO: currently can't join as player2
 			console.log("Table exists. Joining table.");
-			if (table.player1 === null)
+			console.log(table)
+			debugger;
+			if (table.player1 == null)
 			{
 				table.player1 = game.playerName;
-				if (table.player2 !== null)
-				{
-					game.oppenentName = table.player2;
-				}
 				return table;
 			}
-			else if (table.player2 === null)
+			else if (table.player2 == null)
 			{
 				table.player2 = game.playerName;
-				if (table.player1 !== null)
-				{
-					game.oppenentName = table.player1;
-				}
 				return table;
-			} else
-			// TODO
-			console.log("Table is full");
-			return;
+			}
+			else
+			{
+				// TODO
+				console.log("Table is full");
+				return;
+			}
 		}
 
 	}, (error, committed, snapshot) => {
