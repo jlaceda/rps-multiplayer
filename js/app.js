@@ -90,12 +90,63 @@ const login = (name) =>
 	})
 	.then(() =>
 	{
+		renderTables();
 		// set offline onDisconnect
 		db.ref("players/" + name).onDisconnect().update({
 			"online": false
 		});
 	});
 };
+
+const renderTables = () =>
+{
+	$("#gameDisplay").html(`
+	<div class="card">
+		<div class="card-header">Tables</div>
+		<ul class="list-group list-group-flush" id="tables"></ul>
+	</div>`);
+	$("#tables").on("click",".joinButton",(event)=>{
+		event.preventDefault();
+		const tableName = $(event.target).data("table");
+		joinTable(tableName);
+		console.log("joined table " + tableName);
+		//renderTables();
+		renderGame();
+	});
+	db.ref("tables").on('child_added', (childSnapshot) =>
+	{
+		const table = childSnapshot.val();
+		const joinButton = `<button type="button" class="btn btn-primary btn-sm joinButton" data-table="${table.name}">join</button>`;
+		if (table.player1 === undefined) table.player1 = joinButton;
+		if (table.player2 === undefined) table.player2 = joinButton;
+		
+		$("#tables").append([table].map(tableTemplate).join(''));
+	});
+};
+
+const renderGame = () =>
+{
+	$("#gameDisplay").html(`
+	<div class="col-md-6">
+	<h4>Table: ${game.tableName} Opponent: ${game.opponentName||'?'}</h4>
+		<div id="weapons">
+			<p>Choose your weapon:</p>
+			<button type="button" class="btn btn-light btn-lg weapon" data-value="rock">✊</button>
+			<button type="button" class="btn btn-light btn-lg weapon" data-value="paper">📝</button>
+			<button type="button" class="btn btn-light btn-lg weapon" data-value="scissors">✂️</button>
+			<button type="button" class="btn btn-light btn-lg weapon" data-value="lizard">🦎</button>
+			<button type="button" class="btn btn-light btn-lg weapon" data-value="spock">🖖</button>
+		</div>
+	</div>`);
+	$("#gameDisplay .weapon").click((event) =>
+	{
+		event.preventDefault();
+		const choice = $(event.target).data("value");
+		console.log(game.playerName,"chooses",choice)
+		db.ref("tables/" + game.tableName).child("player"+game.playerSlot+"Choice").set(choice);
+		renderGame();
+	});
+}
 
 const compare = (p1Choice, p2Choice) =>
 {
@@ -122,8 +173,10 @@ const compare = (p1Choice, p2Choice) =>
 // update local game state based on db values
 const playing = (tableSnapshot) =>
 {
+	console.log("table changed")
 	if (!game.playing) return;
 	tableState = tableSnapshot.val();
+	console.log(tableState)
 	// only check after both player1Choice and player1Choice are not null
 	if (tableState.player1Choice == null && tableState.player2Choice == null)
 	{
@@ -236,25 +289,11 @@ const joinTable = (tableName) =>
 	})
 	.then(() =>
 	{
-		// set offline and leave table onDisconnect
-		db.ref("players/" + game.playerName).onDisconnect().update({
-			"online": false
-		}, () =>
-		{
-			db.ref("tables/" + game.tableName).once("value", (tableSnapshot) =>
-				{
-					if (tableSnapshot === null)
-					{
-						console.error("not in a table?");
-						return;
-					}
-
-					table = tableSnapshot.val();
-					db.ref("tables/" + game.tableName + "/player" + game.playerSlot).set(null)
-					db.ref("tables/" + game.tableName).child("player" + game.playerSlot+"Choice").set(null);
-				});
-		});
-	});;
+		// leave table onDisconnect
+		db.ref("tables/" + game.tableName + "/player" + game.playerSlot).onDisconnect().set(null);
+		db.ref("tables/" + game.tableName).child("player" + game.playerSlot+"Choice").onDisconnect().set(null);
+		
+	});
 	
 };
 
@@ -297,13 +336,7 @@ $("#play").click((event) =>
 	});
 });
 
-$("#game button").click((event) =>
-{
-	event.preventDefault();
-	const choice = $(event.target).data("value");
-	console.log(game.playerName,"chooses",choice)
-	db.ref("tables/" + game.tableName).child("player"+game.playerSlot+"Choice").set(choice);
-});
+
 
 const tableTemplate = (table) => `
 <li class="list-group-item">
@@ -314,13 +347,5 @@ const tableTemplate = (table) => `
 
 // document on ready
 $(()=>{
-	db.ref("tables").on('child_added', (childSnapshot) =>
-	{
-		const table = childSnapshot.val();
-		const joinButton = `<button type="button" class="btn btn-primary btn-sm joinButton">join</button>`
-		if (table.player1 === undefined) table.player1 = joinButton;
-		if (table.player2 === undefined) table.player2 = joinButton;
-		
-		$("#tables").append([table].map(tableTemplate).join(''));
-	});
+	
 });
