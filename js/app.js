@@ -11,13 +11,11 @@ firebase.initializeApp({
 });
 
 let game = {
+	playerSlot: 0,
 	playerName: null,
-	playerWins: 0,
-	playerLosses: 0,
-	oppenentName: null,
-	oppenentWins: 0,
-	oppenentLosses: 0,
-	tableName: null
+	opponentName: null,	
+	tableName: null,
+	isPlaying: false,
 }
 
 let db = firebase.database();
@@ -48,11 +46,10 @@ const login = (name) =>
 {
 	// make sure player doesn't exist yet
 	var playerRef = db.ref("players/" + name);
-	playerRef.transaction((player) =>
+	return playerRef.transaction((player) =>
 	{
 		if (player === null)
 		{
-			console.log("Player doesn't exist. Creating new player.");
 			return {
 				"name": name,
 				"wins": 0,
@@ -60,15 +57,13 @@ const login = (name) =>
 				"online": true
 			};
 		}
-
-		if (player !== null && player.online === false)
+		else if (player !== null && player.online === false)
 		{
 			console.log("Player exists and is offline. Setting online status.");
 			player.online = true;
 			return player;
 		}
-
-		if (player !== null && player.online === true)
+		else if (player !== null && player.online === true)
 		{
 			console.error("Player exists and is online. Abort login.");
 			return;
@@ -90,20 +85,72 @@ const login = (name) =>
 		// update local game object
 		const p = snapshot.val();
 		game.playerName = p.name;
-		game.playerWins = p.wins;
-		game.playerLosses = p.losses;
 		console.log('Logged in as ' + name);
 		console.log("Game State: ", game);
-	}).then(() => {
+	})
+	.then(() =>
+	{
+		// set offline onDisconnect
 		db.ref("players/" + name).onDisconnect().update({
 			"online": false
 		});
 	});
 };
 
+const compare = (p1Choice, p2Choice) =>
+{
+	// scissors cuts 
+	// paper covers 
+	// rock crushes 
+	// lizard poisons 
+	// spock smashes 
+	// scissors decapitates 
+	// lizard eats 
+	// paper disproves 
+	// spock vaporizes 
+	// rock crushes scissors
+	if (p1Choice === "scissors" && (p2Choice === "paper" || p2Choice === "lizard")) return 1;
+	if (p1Choice === "paper" && (p2Choice === "rock" || p2Choice === "spock")) return 1;
+	if (p1Choice === "rock" && (p2Choice === "lizard" || p2Choice === "scissors")) return 1;
+	if (p1Choice === "lizard" && (p2Choice === "paper" || p2Choice === "spock")) return 1;
+	if (p1Choice === "spock" && (p2Choice === "scissors" || p2Choice === "rock")) return 1;
+	return 2;
+};
+
+// TODO:
+// on table change
+// update local game state based on db values
+const playing = (tableSnapshot) =>
+{
+	if (!game.playing) return;
+	tableState = tableSnapshot.val();
+	// only check after both player1Choice and player1Choice are not null
+	if (tableState.player1Choice == null && tableState.player2Choice == null)
+	{
+		console.log("someone hasn't chosen yet");
+		console.log(tableState);
+		return;
+	}
+
+	if (game.playerSlot === compare(tableState.player1Choice, tableState.player2Choice))
+	{
+		wonRound();
+	}
+	else
+	{
+		lostRound()
+	}
+};
+
 // joins a table
-const joinTable = (tableName) => {
+const joinTable = (tableName) =>
+{
+	// log in first
 	if (game.playerName === null) return;
+	// leave current table
+	game.opponentName = null;
+	game.tableName = null;
+
 	var tableRef = db.ref("tables/" + tableName);
 
 	tableRef.transaction((table) =>
@@ -111,26 +158,29 @@ const joinTable = (tableName) => {
 		if (table === null)
 		{
 			console.log("Table doesn't exist. Creating new table.");
+			game.playerSlot = 1;
 			return {
 				"name": tableName,
 				"player1": game.playerName
 			};
 		}
-
-		if (table !== null)
+		else // join table
 		{
-			// join table
 			console.log("Table exists. Joining table.");
-			console.log(table)
-			debugger;
 			if (table.player1 == null)
 			{
+				console.log("Join in player1 slot.");
+				game.playerSlot = 1;
 				table.player1 = game.playerName;
+				
 				return table;
 			}
 			else if (table.player2 == null)
 			{
+				console.log("Join in player2 slot.");
+				game.playerSlot = 2;
 				table.player2 = game.playerName;
+				game.opponentName = table.player1;
 				return table;
 			}
 			else
@@ -140,8 +190,8 @@ const joinTable = (tableName) => {
 				return;
 			}
 		}
-
-	}, (error, committed, snapshot) => {
+	}, (error, committed, snapshot) =>
+	{
 		if (error)
 		{
 			console.error('Transaction failed abnormally!', error);
@@ -154,33 +204,77 @@ const joinTable = (tableName) => {
 			// TODO: update the markup to reflect this.
 			return;
 		}
-		// update local game object
-		const t = snapshot.val();
-		game.tableName = t.name;
-		if (game.oppenentName === null)
+		const tableSnapshot = snapshot.val()
+		game.tableName = tableSnapshot.name;
+
+		if (game.opponentName == null)
 		{
+			const waitForOpponent = (table) =>
+			{
+				const t = table.val();
+				if (!t.player2) return;
+				
+				game.opponentName = t.player2;
+				db.ref("tables/" + game.tableName).off("value", waitForOpponent);
+				console.log(game.opponentName + " has joined");
+				console.log("ready to play");
+				game.isPlaying = true;
+				db.ref("tables/" + game.tableName).on("value", playing);
+			};
 			console.log("waiting for opponent to join");
+			db.ref("tables/" + game.tableName).on("value", waitForOpponent);
 		}
 		else
 		{
 			console.log("ready to play");
+			game.isPlaying = true;
+			db.ref("tables/" + game.tableName).on("value", playing);
 		}
 		
 		console.log("Game State: ", game);
-	}).then(() => {
-		db.ref("players/" + name).onDisconnect().update({
+
+	})
+	.then(() =>
+	{
+		// set offline and leave table onDisconnect
+		db.ref("players/" + game.playerName).onDisconnect().update({
 			"online": false
+		}, () =>
+		{
+			db.ref("tables/" + game.tableName).once("value", (tableSnapshot) =>
+				{
+					if (tableSnapshot === null)
+					{
+						console.error("not in a table?");
+						return;
+					}
+
+					table = tableSnapshot.val();
+					db.ref("tables/" + game.tableName + "/player" + game.playerSlot).set(null)
+					db.ref("tables/" + game.tableName).child("player" + game.playerSlot+"Choice").set(null);
+				});
 		});
-	});
+	});;
 	
 };
 
-// TODO: only the loser should be able to update score on db
+// only the loser should be able to update score on db
 const lostRound = () => 
 {
-	// inc/dec scores
-	// update dom
+	// TODO: update dom
 	// update db
+	let opponentWinsRef = db.ref("player/" + game.opponentName + "/wins");
+	let playerLossesRef = db.ref("player/" + game.playerName + "/losses");
+	opponentWinsRef.transaction((wins) =>
+	{
+		return wins + 1;
+	});
+	playerLossesRef.transaction((losses) =>
+	{
+		return losses + 1;
+	});
+	db.ref("tables/" + game.tableName).child("player1Choice").set(null);
+	db.ref("tables/" + game.tableName).child("player2Choice").set(null);
 };
 
 // TODO: 
@@ -190,19 +284,17 @@ const wonRound = () =>
 	// update dom
 };
 
-// TODO:
-// on table change
-// update local game state based on db values
-
-
 /* DOM Events */
 
 $("#play").click((event) =>
 {
 	event.preventDefault();
 	const name = $("#name").val().trim();
-	login(name);
-	$("#name").val('');
+	login(name)
+	.then(() =>
+	{
+		$("#nameForm").html(`<h3>Welcome ${name}!</h3>`);
+	});
 });
 
 $("#game button").click((event) =>
@@ -210,5 +302,25 @@ $("#game button").click((event) =>
 	event.preventDefault();
 	const choice = $(event.target).data("value");
 	console.log(game.playerName,"chooses",choice)
-	
+	db.ref("tables/" + game.tableName).child("player"+game.playerSlot+"Choice").set(choice);
+});
+
+const tableTemplate = (table) => `
+<li class="list-group-item">
+	<h6>${table.name}</h6>
+	<span>${table.player1}</span> VS <span>${table.player2}</span>
+</li>
+`;
+
+// document on ready
+$(()=>{
+	db.ref("tables").on('child_added', (childSnapshot) =>
+	{
+		const table = childSnapshot.val();
+		const joinButton = `<button type="button" class="btn btn-primary btn-sm joinButton">join</button>`
+		if (table.player1 === undefined) table.player1 = joinButton;
+		if (table.player2 === undefined) table.player2 = joinButton;
+		
+		$("#tables").append([table].map(tableTemplate).join(''));
+	});
 });
