@@ -189,7 +189,7 @@ const playing = (tableSnapshot) =>
 		console.log(tableState);
 		return;
 	}
-
+	console.log(tableState);
 	console.log("playing game")
 	const result = compare(tableState.player1Choice, tableState.player2Choice);
 	if (result === 0)
@@ -317,8 +317,8 @@ const lostRound = () =>
 {
 	// TODO: update dom
 	// update db
-	let opponentWinsRef = db.ref("player/" + game.opponentName + "/wins");
-	let playerLossesRef = db.ref("player/" + game.playerName + "/losses");
+	let opponentWinsRef = db.ref("players/" + game.opponentName + "/wins");
+	let playerLossesRef = db.ref("players/" + game.playerName + "/losses");
 	opponentWinsRef.transaction((wins) =>
 	{
 		return wins + 1;
