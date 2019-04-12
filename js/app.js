@@ -87,9 +87,7 @@ const login = (name) =>
 		game.playerName = p.name;
 		console.log('Logged in as ' + name);
 		console.log("Game State: ", game);
-	})
-	.then(() =>
-	{
+		$("#nameForm").html(`<h3>Welcome ${name}!</h3>`);
 		renderTables();
 		// set offline onDisconnect
 		db.ref("players/" + name).onDisconnect().update({
@@ -110,8 +108,6 @@ const renderTables = () =>
 		const tableName = $(event.target).data("table");
 		joinTable(tableName);
 		console.log("joined table " + tableName);
-		//renderTables();
-		renderGame();
 	});
 	db.ref("tables").on('child_added', (childSnapshot) =>
 	{
@@ -124,11 +120,18 @@ const renderTables = () =>
 	});
 };
 
+db.ref("tables").on("child_changed", () =>
+{
+	if (game.playerName === null) return;
+	if (game.isPlaying) return;
+	renderTables();
+});
+
 const renderGame = () =>
 {
 	$("#gameDisplay").html(`
 	<div class="col-md-6">
-	<h4>Table: ${game.tableName} Opponent: ${game.opponentName||'?'}</h4>
+	<h4>Table: ${game.tableName === null ? '': game.tableName} Opponent: ${game.opponentName === null ? '': game.opponentName}</h4>
 		<div id="weapons">
 			<p>Choose your weapon:</p>
 			<button type="button" class="btn btn-light btn-lg weapon" data-value="rock">✊</button>
@@ -160,6 +163,7 @@ const compare = (p1Choice, p2Choice) =>
 	// paper disproves 
 	// spock vaporizes 
 	// rock crushes scissors
+	if (p1Choice === p2Choice) return 0;
 	if (p1Choice === "scissors" && (p2Choice === "paper" || p2Choice === "lizard")) return 1;
 	if (p1Choice === "paper" && (p2Choice === "rock" || p2Choice === "spock")) return 1;
 	if (p1Choice === "rock" && (p2Choice === "lizard" || p2Choice === "scissors")) return 1;
@@ -173,19 +177,26 @@ const compare = (p1Choice, p2Choice) =>
 // update local game state based on db values
 const playing = (tableSnapshot) =>
 {
+	
 	console.log("table changed")
-	if (!game.playing) return;
-	tableState = tableSnapshot.val();
+	if (!game.isPlaying) return;
+	const tableState = tableSnapshot.val();
 	console.log(tableState)
 	// only check after both player1Choice and player1Choice are not null
-	if (tableState.player1Choice == null && tableState.player2Choice == null)
+	if (tableState.player1Choice == null || tableState.player2Choice == null)
 	{
 		console.log("someone hasn't chosen yet");
 		console.log(tableState);
 		return;
 	}
 
-	if (game.playerSlot === compare(tableState.player1Choice, tableState.player2Choice))
+	console.log("playing game")
+	const result = compare(tableState.player1Choice, tableState.player2Choice);
+	if (result === 0)
+	{
+		tiedRound();
+	}
+	else if (game.playerSlot === result)
 	{
 		wonRound();
 	}
@@ -193,6 +204,7 @@ const playing = (tableSnapshot) =>
 	{
 		lostRound()
 	}
+	renderGame();
 };
 
 // joins a table
@@ -262,6 +274,7 @@ const joinTable = (tableName) =>
 
 		if (game.opponentName == null)
 		{
+			renderGame();
 			const waitForOpponent = (table) =>
 			{
 				const t = table.val();
@@ -272,6 +285,7 @@ const joinTable = (tableName) =>
 				console.log(game.opponentName + " has joined");
 				console.log("ready to play");
 				game.isPlaying = true;
+				renderGame();
 				db.ref("tables/" + game.tableName).on("value", playing);
 			};
 			console.log("waiting for opponent to join");
@@ -281,6 +295,7 @@ const joinTable = (tableName) =>
 		{
 			console.log("ready to play");
 			game.isPlaying = true;
+			renderGame();
 			db.ref("tables/" + game.tableName).on("value", playing);
 		}
 		
@@ -329,11 +344,7 @@ $("#play").click((event) =>
 {
 	event.preventDefault();
 	const name = $("#name").val().trim();
-	login(name)
-	.then(() =>
-	{
-		$("#nameForm").html(`<h3>Welcome ${name}!</h3>`);
-	});
+	login(name);
 });
 
 
